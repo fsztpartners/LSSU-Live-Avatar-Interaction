@@ -17,6 +17,10 @@ export default function LSSUAvatarApp() {
   const [sessionState, setSessionState] = useState(SessionState.INACTIVE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [avatars, setAvatars] = useState([]);
+  const [voices, setVoices] = useState([]);
+  const [selectedAvatarId, setSelectedAvatarId] = useState("");
+  const [selectedVoiceId, setSelectedVoiceId] = useState("");
   const [micState, setMicState] = useState("off"); // off | starting | listening | muted
   const [micError, setMicError] = useState("");
   const [userTranscript, setUserTranscript] = useState("");
@@ -32,7 +36,11 @@ export default function LSSUAvatarApp() {
       const tokenRes = await fetch("/api/heygen/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "FULL" }),
+        body: JSON.stringify({
+          mode: "FULL",
+          avatar_id: selectedAvatarId || undefined,
+          voice_id: selectedVoiceId || undefined,
+        }),
       });
       const tokenJson = await tokenRes.json();
       if (!tokenRes.ok) {
@@ -118,6 +126,23 @@ export default function LSSUAvatarApp() {
         sessionRef.current = null;
       }
     };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/heygen/options")
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        setAvatars(data.avatars || []);
+        setVoices(data.voices || []);
+        const defaultId = data.defaults?.avatar_id;
+        setSelectedAvatarId(prev =>
+          prev || (defaultId && data.avatars?.some(a => a.id === defaultId) ? defaultId : data.avatars?.[0]?.id || "")
+        );
+      })
+      .catch(() => { /* keep defaults */ });
+    return () => { cancelled = true; };
   }, []);
 
   const isActive = sessionState === SessionState.CONNECTED || sessionState === SessionState.CONNECTING;
@@ -213,6 +238,42 @@ export default function LSSUAvatarApp() {
       textAlign: "center", fontStyle: "italic",
       minHeight: 18,
     },
+    pickerWrap: {
+      display: "flex", flexDirection: "column", gap: 12,
+      width: "100%", maxWidth: 720, alignItems: "center",
+    },
+    pickerLabel: {
+      fontFamily: "'Oswald', sans-serif", fontSize: 11, letterSpacing: 2,
+      color: "rgba(255,215,0,0.7)", textTransform: "uppercase",
+      marginBottom: 4,
+    },
+    avatarStrip: {
+      display: "flex", gap: 10, overflowX: "auto", padding: "4px 8px 12px",
+      width: "100%", scrollbarWidth: "thin",
+    },
+    avatarThumb: (selected) => ({
+      flex: "0 0 auto", width: 88, height: 88, borderRadius: "50%",
+      border: `3px solid ${selected ? "#FFD700" : "rgba(255,255,255,0.15)"}`,
+      boxShadow: selected ? "0 0 20px rgba(255,215,0,0.4)" : "none",
+      cursor: "pointer", overflow: "hidden",
+      background: "rgba(0,0,0,0.3)",
+      transition: "all 0.15s",
+      position: "relative",
+    }),
+    avatarThumbImg: { width: "100%", height: "100%", objectFit: "cover" },
+    avatarName: {
+      fontSize: 10, color: "rgba(255,255,255,0.6)",
+      textAlign: "center", marginTop: 4, width: 88,
+      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+      fontFamily: "'Oswald', sans-serif", letterSpacing: 0.5,
+    },
+    voiceSelect: {
+      padding: "10px 14px", borderRadius: 999,
+      border: "1px solid rgba(255,215,0,0.3)",
+      background: "rgba(0,0,0,0.4)", color: "#FFE4A0",
+      fontSize: 14, fontFamily: "inherit", outline: "none",
+      cursor: "pointer", minWidth: 280,
+    },
   };
 
   return (
@@ -234,10 +295,47 @@ export default function LSSUAvatarApp() {
       <div style={s.stage}>
         {!isActive ? (
           <>
+            <div style={s.pickerWrap}>
+              <div style={s.pickerLabel}>Choose your avatar</div>
+              <div style={s.avatarStrip}>
+                {avatars.map(a => (
+                  <div key={a.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <button
+                      type="button"
+                      style={s.avatarThumb(selectedAvatarId === a.id)}
+                      onClick={() => setSelectedAvatarId(a.id)}
+                      title={a.name}
+                    >
+                      <img src={a.preview_url} alt={a.name} style={s.avatarThumbImg} />
+                    </button>
+                    <div style={s.avatarName}>{a.name}</div>
+                  </div>
+                ))}
+              </div>
+
+              {voices.length > 0 && (
+                <>
+                  <div style={s.pickerLabel}>Choose a voice</div>
+                  <select
+                    style={s.voiceSelect}
+                    value={selectedVoiceId}
+                    onChange={e => setSelectedVoiceId(e.target.value)}
+                  >
+                    <option value="">Default avatar voice</option>
+                    {voices.map(v => (
+                      <option key={v.id} value={v.id} style={{ background: "#001529" }}>
+                        {v.name} {v.gender ? `(${v.gender})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+
             <button
               style={{ ...s.bigBtn, opacity: loading ? 0.6 : 1, cursor: loading ? "wait" : "pointer" }}
               onClick={startSession}
-              disabled={loading}
+              disabled={loading || !selectedAvatarId}
             >
               {loading ? "Connecting…" : "Start Conversation"}
             </button>

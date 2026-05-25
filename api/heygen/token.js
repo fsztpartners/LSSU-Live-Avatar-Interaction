@@ -106,11 +106,14 @@ export default async function handler(req, res) {
 
   const mode = clientPayload.mode || 'FULL'
 
-  let avatarPersona = clientPayload.avatar_persona
-  if (mode === 'FULL' && !avatarPersona?.context_id) {
+  let avatarPersona = clientPayload.avatar_persona || {}
+  if (clientPayload.voice_id && !avatarPersona.voice_id) {
+    avatarPersona.voice_id = clientPayload.voice_id
+  }
+  if (mode === 'FULL' && !avatarPersona.context_id) {
     try {
       const contextId = await ensureContextId(apiKey)
-      avatarPersona = { ...(avatarPersona || {}), context_id: contextId }
+      avatarPersona.context_id = contextId
     } catch (err) {
       res.status(502).json({ error: 'context_bootstrap_failed', detail: String(err) })
       return

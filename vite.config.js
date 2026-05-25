@@ -105,11 +105,14 @@ function heyGenTokenPlugin(env) {
 
     const mode = clientPayload.mode || 'FULL'
 
-    let avatarPersona = clientPayload.avatar_persona
-    if (mode === 'FULL' && !avatarPersona?.context_id) {
+    let avatarPersona = clientPayload.avatar_persona || {}
+    if (clientPayload.voice_id && !avatarPersona.voice_id) {
+      avatarPersona.voice_id = clientPayload.voice_id
+    }
+    if (mode === 'FULL' && !avatarPersona.context_id) {
       try {
         const contextId = await ensureContextId(apiKey)
-        avatarPersona = { ...(avatarPersona || {}), context_id: contextId }
+        avatarPersona.context_id = contextId
       } catch (err) {
         res.statusCode = 502
         res.end(JSON.stringify({ error: 'context_bootstrap_failed', detail: String(err) }))
@@ -142,13 +145,50 @@ function heyGenTokenPlugin(env) {
     }
   }
 
+  const optionsHandler = async (_req, res) => {
+    const apiKey = env.HEYGEN_API_KEY
+    try {
+      const [avatarsRes, voicesRes] = await Promise.all([
+        fetch('https://api.liveavatar.com/v1/avatars/public?page_size=24'),
+        apiKey
+          ? fetch('https://api.liveavatar.com/v1/voices?page_size=50', {
+              headers: { 'X-API-KEY': apiKey },
+            })
+          : Promise.resolve(null),
+      ])
+      const avatarsJson = await avatarsRes.json()
+      const avatars = (avatarsJson?.data?.results || [])
+        .filter(a => a.status === 'ACTIVE' && a.preview_url)
+        .map(a => ({ id: a.id, name: a.name, preview_url: a.preview_url }))
+
+      let voices = []
+      if (voicesRes?.ok) {
+        const voicesJson = await voicesRes.json()
+        voices = (voicesJson?.data?.results || [])
+          .filter(v => /^en/i.test(v.language || ''))
+          .map(v => ({ id: v.id, name: v.name, gender: v.gender, language: v.language }))
+      }
+
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({
+        avatars, voices,
+        defaults: { avatar_id: env.HEYGEN_DEFAULT_AVATAR_ID || null },
+      }))
+    } catch (err) {
+      res.statusCode = 502
+      res.end(JSON.stringify({ error: 'options_fetch_failed', detail: String(err) }))
+    }
+  }
+
   return {
     name: 'heygen-token-middleware',
     configureServer(server) {
       server.middlewares.use('/api/heygen/token', handler)
+      server.middlewares.use('/api/heygen/options', optionsHandler)
     },
     configurePreviewServer(server) {
       server.middlewares.use('/api/heygen/token', handler)
+      server.middlewares.use('/api/heygen/options', optionsHandler)
     },
   }
 }
